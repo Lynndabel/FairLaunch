@@ -5,6 +5,10 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+/**
+ * @title FairLaunch - Project Recycling System
+ * @dev A decentralized system for inheriting abandoned Web3 projects with fair royalty distribution
+ */
 contract FairLaunch is Ownable, ReentrancyGuard {
     // State variables
     uint256 private _projectIdCounter;
@@ -36,7 +40,53 @@ contract FairLaunch is Ownable, ReentrancyGuard {
         Executed
     }
     
-    // Structs
+    // Structs for function parameters to reduce stack depth
+    struct ProjectParams {
+        string name;
+        string description;
+        string githubRepo;
+        string[] techStack;
+        address[] team;
+        uint256[] contributionWeights;
+        string[] roles;
+        uint256 royaltyRate;
+    }
+    
+    struct ProjectInfo {
+        string name;
+        string description;
+        string githubRepo;
+        string[] techStack;
+        address[] originalTeam;
+        uint256 royaltyRate;
+        ProjectStatus status;
+        address currentOwner;
+        uint256 abandonedTimestamp;
+        uint256 lastActivityTimestamp;
+    }
+    
+    struct ProposalParams {
+        uint256 projectId;
+        address[] newTeam;
+        string revivalPlan;
+        string[] milestones;
+        uint256 requestedFunding;
+        uint256 proposedRoyaltyRate;
+    }
+    
+    struct ProposalInfo {
+        uint256 projectId;
+        address proposer;
+        address[] newTeam;
+        string revivalPlan;
+        string[] milestones;
+        uint256 requestedFunding;
+        uint256 proposedRoyaltyRate;
+        uint256 votesFor;
+        uint256 votesAgainst;
+        ProposalStatus status;
+    }
+    
     struct Contributor {
         address wallet;
         uint256 contributionWeight; // Basis points (0-10000)
@@ -81,11 +131,11 @@ contract FairLaunch is Ownable, ReentrancyGuard {
     }
     
     // Mappings
-    mapping(uint256 => Project) public projects;
-    mapping(uint256 => RevivalProposal) public revivalProposals;
-    mapping(address => uint256[]) public userProjects;
-    mapping(string => uint256) public githubToProjectId;
-    mapping(address => uint256) public userVotingPower;
+    mapping(uint256 => Project) projects;
+    mapping(uint256 => RevivalProposal) revivalProposals;
+    mapping(address => uint256[]) userProjects;
+    mapping(string => uint256) githubToProjectId;
+    mapping(address => uint256) userVotingPower;
     
     // Events
     event ProjectRegistered(uint256 indexed projectId, string name, address indexed owner);
@@ -127,48 +177,39 @@ contract FairLaunch is Ownable, ReentrancyGuard {
     /**
      * @dev Register a new project in the system
      */
-    function registerProject(
-        string memory _name,
-        string memory _description,
-        string memory _githubRepo,
-        string[] memory _techStack,
-        address[] memory _team,
-        uint256[] memory _contributionWeights,
-        string[] memory _roles,
-        uint256 _royaltyRate
-    ) external returns (uint256) {
-        require(bytes(_name).length > 0, "Name cannot be empty");
-        require(bytes(_githubRepo).length > 0, "GitHub repo required");
-        require(_team.length == _contributionWeights.length, "Team and weights length mismatch");
-        require(_team.length == _roles.length, "Team and roles length mismatch");
-        require(_royaltyRate >= MIN_ROYALTY_RATE && _royaltyRate <= MAX_ROYALTY_RATE, "Invalid royalty rate");
-        require(githubToProjectId[_githubRepo] == 0, "GitHub repo already registered");
+    function registerProject(ProjectParams memory params) external returns (uint256) {
+        require(bytes(params.name).length > 0, "Name cannot be empty");
+        require(bytes(params.githubRepo).length > 0, "GitHub repo required");
+        require(params.team.length == params.contributionWeights.length, "Team and weights length mismatch");
+        require(params.team.length == params.roles.length, "Team and roles length mismatch");
+        require(params.royaltyRate >= MIN_ROYALTY_RATE && params.royaltyRate <= MAX_ROYALTY_RATE, "Invalid royalty rate");
+        require(githubToProjectId[params.githubRepo] == 0, "GitHub repo already registered");
         
         ++_projectIdCounter;
         uint256 newProjectId = _projectIdCounter;
         
         Project storage newProject = projects[newProjectId];
         newProject.id = newProjectId;
-        newProject.name = _name;
-        newProject.description = _description;
-        newProject.githubRepo = _githubRepo;
-        newProject.techStack = _techStack;
-        newProject.originalTeam = _team;
-        newProject.royaltyRate = _royaltyRate;
+        newProject.name = params.name;
+        newProject.description = params.description;
+        newProject.githubRepo = params.githubRepo;
+        newProject.techStack = params.techStack;
+        newProject.originalTeam = params.team;
+        newProject.royaltyRate = params.royaltyRate;
         newProject.status = ProjectStatus.Active;
         newProject.lastActivityTimestamp = block.timestamp;
         newProject.currentOwner = msg.sender;
         
         uint256 totalWeight = 0;
-        for (uint256 i = 0; i < _team.length; i++) {
-            require(_team[i] != address(0), "Team member address cannot be zero");
-            require(_contributionWeights[i] > 0, "Contribution weight must be > 0");
-            totalWeight += _contributionWeights[i];
+        for (uint256 i = 0; i < params.team.length; i++) {
+            require(params.team[i] != address(0), "Team member address cannot be zero");
+            require(params.contributionWeights[i] > 0, "Contribution weight must be > 0");
+            totalWeight += params.contributionWeights[i];
             
-            newProject.contributors[_team[i]] = Contributor({
-                wallet: _team[i],
-                contributionWeight: _contributionWeights[i],
-                role: _roles[i],
+            newProject.contributors[params.team[i]] = Contributor({
+                wallet: params.team[i],
+                contributionWeight: params.contributionWeights[i],
+                role: params.roles[i],
                 isActive: true
             });
         }
@@ -176,10 +217,10 @@ contract FairLaunch is Ownable, ReentrancyGuard {
         require(totalWeight == BASIS_POINTS, "Total contribution weights must equal 100%");
         newProject.totalContributionWeight = totalWeight;
         
-        githubToProjectId[_githubRepo] = newProjectId;
+        githubToProjectId[params.githubRepo] = newProjectId;
         userProjects[msg.sender].push(newProjectId);
         
-        emit ProjectRegistered(newProjectId, _name, msg.sender);
+        emit ProjectRegistered(newProjectId, params.name, msg.sender);
         return newProjectId;
     }
     
@@ -220,22 +261,20 @@ contract FairLaunch is Ownable, ReentrancyGuard {
     /**
      * @dev Submit a revival proposal for an abandoned project
      */
-    function submitRevivalProposal(
-        uint256 _projectId,
-        address[] memory _newTeam,
-        string memory _revivalPlan,
-        string[] memory _milestones,
-        uint256 _requestedFunding,
-        uint256 _proposedRoyaltyRate
-    ) external projectExists(_projectId) onlyAbandonedProject(_projectId) returns (uint256) {
-        require(_newTeam.length > 0, "New team required");
-        require(bytes(_revivalPlan).length > 0, "Revival plan required");
-        require(_milestones.length > 0, "Milestones required");
-        require(_proposedRoyaltyRate >= MIN_ROYALTY_RATE && _proposedRoyaltyRate <= MAX_ROYALTY_RATE, "Invalid royalty rate");
+    function submitRevivalProposal(ProposalParams memory params) 
+        external 
+        projectExists(params.projectId) 
+        onlyAbandonedProject(params.projectId) 
+        returns (uint256) 
+    {
+        require(params.newTeam.length > 0, "New team required");
+        require(bytes(params.revivalPlan).length > 0, "Revival plan required");
+        require(params.milestones.length > 0, "Milestones required");
+        require(params.proposedRoyaltyRate >= MIN_ROYALTY_RATE && params.proposedRoyaltyRate <= MAX_ROYALTY_RATE, "Invalid royalty rate");
         
         // Check new team addresses are valid
-        for (uint256 i = 0; i < _newTeam.length; i++) {
-            require(_newTeam[i] != address(0), "Team member address cannot be zero");
+        for (uint256 i = 0; i < params.newTeam.length; i++) {
+            require(params.newTeam[i] != address(0), "Team member address cannot be zero");
         }
         
         ++_proposalIdCounter;
@@ -243,19 +282,19 @@ contract FairLaunch is Ownable, ReentrancyGuard {
         
         RevivalProposal storage proposal = revivalProposals[newProposalId];
         proposal.id = newProposalId;
-        proposal.projectId = _projectId;
+        proposal.projectId = params.projectId;
         proposal.proposer = msg.sender;
-        proposal.newTeam = _newTeam;
-        proposal.revivalPlan = _revivalPlan;
-        proposal.milestones = _milestones;
-        proposal.requestedFunding = _requestedFunding;
-        proposal.proposedRoyaltyRate = _proposedRoyaltyRate;
+        proposal.newTeam = params.newTeam;
+        proposal.revivalPlan = params.revivalPlan;
+        proposal.milestones = params.milestones;
+        proposal.requestedFunding = params.requestedFunding;
+        proposal.proposedRoyaltyRate = params.proposedRoyaltyRate;
         proposal.submissionTimestamp = block.timestamp;
         proposal.status = ProposalStatus.Active;
         
-        projects[_projectId].status = ProjectStatus.InRevival;
+        projects[params.projectId].status = ProjectStatus.InRevival;
         
-        emit RevivalProposalSubmitted(newProposalId, _projectId, msg.sender);
+        emit RevivalProposalSubmitted(newProposalId, params.projectId, msg.sender);
         return newProposalId;
     }
     
@@ -458,31 +497,18 @@ contract FairLaunch is Ownable, ReentrancyGuard {
     /**
      * @dev Get project details
      */
-    function getProject(uint256 _projectId) external view projectExists(_projectId) returns (
-        string memory name,
-        string memory description,
-        string memory githubRepo,
-        string[] memory techStack,
-        address[] memory originalTeam,
-        uint256 royaltyRate,
-        ProjectStatus status,
-        address currentOwner,
-        uint256 abandonedTimestamp,
-        uint256 lastActivityTimestamp
-    ) {
+    function getProject(uint256 _projectId) external view projectExists(_projectId) returns (ProjectInfo memory info) {
         Project storage project = projects[_projectId];
-        return (
-            project.name,
-            project.description,
-            project.githubRepo,
-            project.techStack,
-            project.originalTeam,
-            project.royaltyRate,
-            project.status,
-            project.currentOwner,
-            project.abandonedTimestamp,
-            project.lastActivityTimestamp
-        );
+        info.name = project.name;
+        info.description = project.description;
+        info.githubRepo = project.githubRepo;
+        info.techStack = project.techStack;
+        info.originalTeam = project.originalTeam;
+        info.royaltyRate = project.royaltyRate;
+        info.status = project.status;
+        info.currentOwner = project.currentOwner;
+        info.abandonedTimestamp = project.abandonedTimestamp;
+        info.lastActivityTimestamp = project.lastActivityTimestamp;
     }
     
     /**
@@ -501,31 +527,18 @@ contract FairLaunch is Ownable, ReentrancyGuard {
     /**
      * @dev Get revival proposal details
      */
-    function getRevivalProposal(uint256 _proposalId) external view returns (
-        uint256 projectId,
-        address proposer,
-        address[] memory newTeam,
-        string memory revivalPlan,
-        string[] memory milestones,
-        uint256 requestedFunding,
-        uint256 proposedRoyaltyRate,
-        uint256 votesFor,
-        uint256 votesAgainst,
-        ProposalStatus status
-    ) {
+    function getRevivalProposal(uint256 _proposalId) external view returns (ProposalInfo memory info) {
         RevivalProposal storage proposal = revivalProposals[_proposalId];
-        return (
-            proposal.projectId,
-            proposal.proposer,
-            proposal.newTeam,
-            proposal.revivalPlan,
-            proposal.milestones,
-            proposal.requestedFunding,
-            proposal.proposedRoyaltyRate,
-            proposal.votesFor,
-            proposal.votesAgainst,
-            proposal.status
-        );
+        info.projectId = proposal.projectId;
+        info.proposer = proposal.proposer;
+        info.newTeam = proposal.newTeam;
+        info.revivalPlan = proposal.revivalPlan;
+        info.milestones = proposal.milestones;
+        info.requestedFunding = proposal.requestedFunding;
+        info.proposedRoyaltyRate = proposal.proposedRoyaltyRate;
+        info.votesFor = proposal.votesFor;
+        info.votesAgainst = proposal.votesAgainst;
+        info.status = proposal.status;
     }
     
     /**
@@ -533,6 +546,20 @@ contract FairLaunch is Ownable, ReentrancyGuard {
      */
     function getUserProjects(address _user) external view returns (uint256[] memory) {
         return userProjects[_user];
+    }
+    
+    /**
+     * @dev Get project ID by GitHub repo
+     */
+    function getGithubToProjectId(string memory _githubRepo) external view returns (uint256) {
+        return githubToProjectId[_githubRepo];
+    }
+    
+    /**
+     * @dev Get user's voting power setting
+     */
+    function getUserVotingPowerSetting(address _user) external view returns (uint256) {
+        return userVotingPower[_user];
     }
     
     /**

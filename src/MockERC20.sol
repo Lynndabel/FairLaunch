@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+/**
+ * @title MockERC20 - Simple ERC20 implementation for testing
+ * @dev Minimal ERC20 token for testing FairLaunch contract
+ */
 contract MockERC20 {
     string public name;
     string public symbol;
-    uint8 public decimals = 18;
+    uint8 public constant decimals = 18;
     uint256 public totalSupply;
     
     mapping(address => uint256) public balanceOf;
@@ -55,7 +59,7 @@ contract MockERC20 {
     
     // Additional helper functions for testing
     function mint(address to, uint256 amount) public {
-        require(to != address(0), "ERC20 cannot mint to the zero address");
+        require(to != address(0), "ERC20: mint to the zero address");
         
         totalSupply += amount;
         balanceOf[to] += amount;
@@ -63,7 +67,7 @@ contract MockERC20 {
     }
     
     function burn(address from, uint256 amount) public {
-        require(from != address(0), "ERC20 cannot burn from the zero address");
+        require(from != address(0), "ERC20: burn from the zero address");
         require(balanceOf[from] >= amount, "ERC20: burn amount exceeds balance");
         
         balanceOf[from] -= amount;

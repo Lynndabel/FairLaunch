@@ -53,6 +53,13 @@ contract FairLaunchTest is Test {
         fair3Token.transfer(addr2, 1000 ether);
         fair3Token.transfer(addr3, 1000 ether);
         fair3Token.transfer(addr4, 1000 ether);
+        
+        // Give accounts some ETH for testing
+        vm.deal(addr1, 100 ether);
+        vm.deal(addr2, 100 ether);
+        vm.deal(addr3, 100 ether);
+        vm.deal(addr4, 100 ether);
+        vm.deal(addr5, 100 ether);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -62,6 +69,8 @@ contract FairLaunchTest is Test {
     function test_deployment() public {
         assertEq(fairLaunch.owner(), owner);
         assertEq(address(fairLaunch.fair3Token()), address(fair3Token));
+        assertEq(fairLaunch.getTotalProjects(), 0);
+        assertEq(fairLaunch.getTotalProposals(), 0);
     }
 
     function test_deploymentRevertsWithZeroAddress() public {
@@ -79,44 +88,83 @@ contract FairLaunchTest is Test {
         vm.expectEmit(true, true, false, true);
         emit FairLaunch.ProjectRegistered(1, "Test Project", addr1);
         
-        uint256 projectId = fairLaunch.registerProject(
-            "Test Project",
-            "A test project",
-            "https://github.com/test/project",
-            techStack,
-            originalTeam,
-            contributionWeights,
-            roles,
-            1000
-        );
+        FairLaunch.ProjectParams memory params = FairLaunch.ProjectParams({
+            name: "Test Project",
+            description: "A test project",
+            githubRepo: "https://github.com/test/project",
+            techStack: techStack,
+            team: originalTeam,
+            contributionWeights: contributionWeights,
+            roles: roles,
+            royaltyRate: 1000
+        });
+        
+        uint256 projectId = fairLaunch.registerProject(params);
         
         assertEq(projectId, 1);
+        assertEq(fairLaunch.getTotalProjects(), 1);
         
-        (
-            string memory name,
-            string memory description,
-            string memory githubRepo,
-            string[] memory returnedTechStack,
-            address[] memory returnedTeam,
-            uint256 royaltyRate,
-            FairLaunch.ProjectStatus status,
-            address currentOwner,
-            uint256 abandonedTimestamp,
-            uint256 lastActivityTimestamp
-        ) = fairLaunch.getProject(1);
+        FairLaunch.ProjectInfo memory info = fairLaunch.getProject(1);
         
-        assertEq(name, "Test Project");
-        assertEq(description, "A test project");
-        assertEq(githubRepo, "https://github.com/test/project");
-        assertEq(returnedTechStack.length, 2);
-        assertEq(returnedTeam.length, 2);
-        assertEq(returnedTeam[0], addr1);
-        assertEq(returnedTeam[1], addr2);
-        assertEq(royaltyRate, 1000);
-        assertEq(uint256(status), 0); // ProjectStatus.Active
-        assertEq(currentOwner, addr1);
-        assertEq(abandonedTimestamp, 0);
-        assertGt(lastActivityTimestamp, 0);
+        assertEq(info.name, "Test Project");
+        assertEq(info.description, "A test project");
+        assertEq(info.githubRepo, "https://github.com/test/project");
+        assertEq(info.techStack.length, 2);
+        assertEq(info.techStack[0], "Solidity");
+        assertEq(info.techStack[1], "React");
+        assertEq(info.originalTeam.length, 2);
+        assertEq(info.originalTeam[0], addr1);
+        assertEq(info.originalTeam[1], addr2);
+        assertEq(info.royaltyRate, 1000);
+        assertEq(uint256(info.status), 0); // ProjectStatus.Active
+        assertEq(info.currentOwner, addr1);
+        assertEq(info.abandonedTimestamp, 0);
+        assertGt(info.lastActivityTimestamp, 0);
+        
+        // Check contributor details
+        (uint256 weight1, string memory role1, bool isActive1) = fairLaunch.getContributor(1, addr1);
+        assertEq(weight1, 6000);
+        assertEq(role1, "Founder");
+        assertEq(isActive1, true);
+        
+        (uint256 weight2, string memory role2, bool isActive2) = fairLaunch.getContributor(1, addr2);
+        assertEq(weight2, 4000);
+        assertEq(role2, "Developer");
+        assertEq(isActive2, true);
+    }
+
+    function test_registerProjectRevertsWithEmptyName() public {
+        FairLaunch.ProjectParams memory params = FairLaunch.ProjectParams({
+            name: "",
+            description: "Description",
+            githubRepo: "https://github.com/test/project",
+            techStack: techStack,
+            team: originalTeam,
+            contributionWeights: contributionWeights,
+            roles: roles,
+            royaltyRate: 1000
+        });
+        
+        vm.prank(addr1);
+        vm.expectRevert("Name cannot be empty");
+        fairLaunch.registerProject(params);
+    }
+
+    function test_registerProjectRevertsWithEmptyGithub() public {
+        FairLaunch.ProjectParams memory params = FairLaunch.ProjectParams({
+            name: "Test Project",
+            description: "Description",
+            githubRepo: "",
+            techStack: techStack,
+            team: originalTeam,
+            contributionWeights: contributionWeights,
+            roles: roles,
+            royaltyRate: 1000
+        });
+        
+        vm.prank(addr1);
+        vm.expectRevert("GitHub repo required");
+        fairLaunch.registerProject(params);
     }
 
     function test_registerProjectRevertsWithZeroTeamMember() public {
@@ -124,18 +172,20 @@ contract FairLaunchTest is Test {
         invalidTeam[0] = address(0);
         invalidTeam[1] = addr2;
         
+        FairLaunch.ProjectParams memory params = FairLaunch.ProjectParams({
+            name: "Test Project",
+            description: "Description",
+            githubRepo: "https://github.com/test/project",
+            techStack: techStack,
+            team: invalidTeam,
+            contributionWeights: contributionWeights,
+            roles: roles,
+            royaltyRate: 1000
+        });
+        
         vm.prank(addr1);
         vm.expectRevert("Team member address cannot be zero");
-        fairLaunch.registerProject(
-            "Test Project",
-            "Description",
-            "https://github.com/test/project",
-            techStack,
-            invalidTeam,
-            contributionWeights,
-            roles,
-            1000
-        );
+        fairLaunch.registerProject(params);
     }
 
     function test_registerProjectRevertsWithInvalidWeights() public {
@@ -143,62 +193,111 @@ contract FairLaunchTest is Test {
         invalidWeights[0] = 5000;
         invalidWeights[1] = 4000; // Only 90%
         
+        FairLaunch.ProjectParams memory params = FairLaunch.ProjectParams({
+            name: "Test Project",
+            description: "Description",
+            githubRepo: "https://github.com/test/project",
+            techStack: techStack,
+            team: originalTeam,
+            contributionWeights: invalidWeights,
+            roles: roles,
+            royaltyRate: 1000
+        });
+        
         vm.prank(addr1);
         vm.expectRevert("Total contribution weights must equal 100%");
-        fairLaunch.registerProject(
-            "Test Project",
-            "Description",
-            "https://github.com/test/project",
-            techStack,
-            originalTeam,
-            invalidWeights,
-            roles,
-            1000
-        );
+        fairLaunch.registerProject(params);
     }
 
-    function test_registerProjectRevertsWithInvalidRoyaltyRate() public {
+    function test_registerProjectRevertsWithLowRoyaltyRate() public {
+        FairLaunch.ProjectParams memory params = FairLaunch.ProjectParams({
+            name: "Test Project",
+            description: "Description",
+            githubRepo: "https://github.com/test/project",
+            techStack: techStack,
+            team: originalTeam,
+            contributionWeights: contributionWeights,
+            roles: roles,
+            royaltyRate: 400 // 4% - too low
+        });
+        
         vm.prank(addr1);
         vm.expectRevert("Invalid royalty rate");
-        fairLaunch.registerProject(
-            "Test Project",
-            "Description",
-            "https://github.com/test/project",
-            techStack,
-            originalTeam,
-            contributionWeights,
-            roles,
-            2000 // 20% - too high
-        );
+        fairLaunch.registerProject(params);
+    }
+
+    function test_registerProjectRevertsWithHighRoyaltyRate() public {
+        FairLaunch.ProjectParams memory params = FairLaunch.ProjectParams({
+            name: "Test Project",
+            description: "Description", 
+            githubRepo: "https://github.com/test/project",
+            techStack: techStack,
+            team: originalTeam,
+            contributionWeights: contributionWeights,
+            roles: roles,
+            royaltyRate: 2000 // 20% - too high
+        });
+        
+        vm.prank(addr1);
+        vm.expectRevert("Invalid royalty rate");
+        fairLaunch.registerProject(params);
     }
 
     function test_registerProjectRevertsWithDuplicateGithubRepo() public {
         string memory githubRepo = "https://github.com/test/project";
         
+        FairLaunch.ProjectParams memory params1 = FairLaunch.ProjectParams({
+            name: "Test Project 1",
+            description: "Description",
+            githubRepo: githubRepo,
+            techStack: techStack,
+            team: originalTeam,
+            contributionWeights: contributionWeights,
+            roles: roles,
+            royaltyRate: 1000
+        });
+        
         vm.prank(addr1);
-        fairLaunch.registerProject(
-            "Test Project 1",
-            "Description",
-            githubRepo,
-            techStack,
-            originalTeam,
-            contributionWeights,
-            roles,
-            1000
-        );
+        fairLaunch.registerProject(params1);
+        
+        address[] memory newTeamMembers = new address[](2);
+        newTeamMembers[0] = addr3;
+        newTeamMembers[1] = addr4;
+        
+        FairLaunch.ProjectParams memory params2 = FairLaunch.ProjectParams({
+            name: "Test Project 2",
+            description: "Description",
+            githubRepo: githubRepo, // Same repo
+            techStack: techStack,
+            team: newTeamMembers,
+            contributionWeights: contributionWeights,
+            roles: roles,
+            royaltyRate: 1000
+        });
         
         vm.prank(addr2);
         vm.expectRevert("GitHub repo already registered");
-        fairLaunch.registerProject(
-            "Test Project 2",
-            "Description",
-            githubRepo, // Same repo
-            techStack,
-            originalTeam,
-            contributionWeights,
-            roles,
-            1000
-        );
+        fairLaunch.registerProject(params2);
+    }
+
+    function test_registerProjectRevertsWithArrayLengthMismatch() public {
+        uint256[] memory invalidWeights = new uint256[](1); // Wrong length
+        invalidWeights[0] = 10000;
+        
+        FairLaunch.ProjectParams memory params = FairLaunch.ProjectParams({
+            name: "Test Project",
+            description: "Description",
+            githubRepo: "https://github.com/test/project",
+            techStack: techStack,
+            team: originalTeam, // Length 2
+            contributionWeights: invalidWeights, // Length 1
+            roles: roles,
+            royaltyRate: 1000
+        });
+        
+        vm.prank(addr1);
+        vm.expectRevert("Team and weights length mismatch");
+        fairLaunch.registerProject(params);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -214,8 +313,8 @@ contract FairLaunchTest is Test {
         
         fairLaunch.flagProject(projectId, "No activity for 6 months");
         
-        (, , , , , , FairLaunch.ProjectStatus status, , , ) = fairLaunch.getProject(projectId);
-        assertEq(uint256(status), 1); // ProjectStatus.Flagged
+        FairLaunch.ProjectInfo memory info = fairLaunch.getProject(projectId);
+        assertEq(uint256(info.status), 1); // ProjectStatus.Flagged
     }
 
     function test_flagProjectRevertsWithEmptyReason() public {
@@ -224,6 +323,19 @@ contract FairLaunchTest is Test {
         vm.prank(addr3);
         vm.expectRevert("Reason required");
         fairLaunch.flagProject(projectId, "");
+    }
+
+    function test_flagProjectRevertsNonActiveProject() public {
+        uint256 projectId = _registerTestProject();
+        
+        // Flag project first
+        vm.prank(addr3);
+        fairLaunch.flagProject(projectId, "No activity");
+        
+        // Try to flag again
+        vm.prank(addr3);
+        vm.expectRevert("Project not active");
+        fairLaunch.flagProject(projectId, "Still no activity");
     }
 
     function test_declareAbandoned() public {
@@ -242,8 +354,8 @@ contract FairLaunchTest is Test {
         
         fairLaunch.declareAbandoned(projectId, "Grace period elapsed");
         
-        (, , , , , , FairLaunch.ProjectStatus status, , , ) = fairLaunch.getProject(projectId);
-        assertEq(uint256(status), 2); // ProjectStatus.Abandoned
+        FairLaunch.ProjectInfo memory info = fairLaunch.getProject(projectId);
+        assertEq(uint256(info.status), 2); // ProjectStatus.Abandoned
     }
 
     function test_declareAbandonedRevertsBeforeGracePeriod() public {
@@ -252,9 +364,20 @@ contract FairLaunchTest is Test {
         vm.prank(addr3);
         fairLaunch.flagProject(projectId, "No activity");
         
+        // Don't wait for grace period
         vm.prank(addr3);
         vm.expectRevert("Grace period not elapsed");
         fairLaunch.declareAbandoned(projectId, "Too early");
+    }
+
+    function test_declareAbandonedRevertsNotFlagged() public {
+        uint256 projectId = _registerTestProject();
+        
+        vm.warp(block.timestamp + GRACE_PERIOD + 1);
+        
+        vm.prank(addr3);
+        vm.expectRevert("Project must be flagged first");
+        fairLaunch.declareAbandoned(projectId, "Not flagged");
     }
 
     function test_updateActivity() public {
@@ -268,8 +391,17 @@ contract FairLaunchTest is Test {
         vm.prank(addr1);
         fairLaunch.updateActivity(projectId);
         
-        (, , , , , , FairLaunch.ProjectStatus status, , , ) = fairLaunch.getProject(projectId);
-        assertEq(uint256(status), 0); // ProjectStatus.Active
+        FairLaunch.ProjectInfo memory info = fairLaunch.getProject(projectId);
+        assertEq(uint256(info.status), 0); // ProjectStatus.Active
+        assertEq(info.lastActivityTimestamp, block.timestamp);
+    }
+
+    function test_updateActivityRevertsNotOwner() public {
+        uint256 projectId = _registerTestProject();
+        
+        vm.prank(addr3);
+        vm.expectRevert("Not project owner");
+        fairLaunch.updateActivity(projectId);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -279,46 +411,44 @@ contract FairLaunchTest is Test {
     function test_submitRevivalProposal() public {
         uint256 projectId = _abandonProject();
         
+        FairLaunch.ProposalParams memory params = FairLaunch.ProposalParams({
+            projectId: projectId,
+            newTeam: newTeam,
+            revivalPlan: "We will revive this project with new features",
+            milestones: milestones,
+            requestedFunding: 10 ether,
+            proposedRoyaltyRate: 800
+        });
+        
         vm.prank(addr3);
         vm.expectEmit(true, true, true, false);
         emit FairLaunch.RevivalProposalSubmitted(1, projectId, addr3);
         
-        uint256 proposalId = fairLaunch.submitRevivalProposal(
-            projectId,
-            newTeam,
-            "We will revive this project with new features",
-            milestones,
-            10 ether,
-            800 // 8% royalty
-        );
+        uint256 proposalId = fairLaunch.submitRevivalProposal(params);
         
         assertEq(proposalId, 1);
+        assertEq(fairLaunch.getTotalProposals(), 1);
         
-        (
-            uint256 returnedProjectId,
-            address proposer,
-            address[] memory returnedNewTeam,
-            string memory revivalPlan,
-            string[] memory returnedMilestones,
-            uint256 requestedFunding,
-            uint256 proposedRoyaltyRate,
-            uint256 votesFor,
-            uint256 votesAgainst,
-            FairLaunch.ProposalStatus status
-        ) = fairLaunch.getRevivalProposal(1);
+        FairLaunch.ProposalInfo memory info = fairLaunch.getRevivalProposal(1);
         
-        assertEq(returnedProjectId, projectId);
-        assertEq(proposer, addr3);
-        assertEq(returnedNewTeam.length, 2);
-        assertEq(returnedNewTeam[0], addr3);
-        assertEq(returnedNewTeam[1], addr4);
-        assertEq(bytes(revivalPlan).length > 0, true);
-        assertEq(returnedMilestones.length, 2);
-        assertEq(requestedFunding, 10 ether);
-        assertEq(proposedRoyaltyRate, 800);
-        assertEq(votesFor, 0);
-        assertEq(votesAgainst, 0);
-        assertEq(uint256(status), 1); // ProposalStatus.Active
+        assertEq(info.projectId, projectId);
+        assertEq(info.proposer, addr3);
+        assertEq(info.newTeam.length, 2);
+        assertEq(info.newTeam[0], addr3);
+        assertEq(info.newTeam[1], addr4);
+        assertTrue(bytes(info.revivalPlan).length > 0);
+        assertEq(info.milestones.length, 2);
+        assertEq(info.milestones[0], "Milestone 1");
+        assertEq(info.milestones[1], "Milestone 2");
+        assertEq(info.requestedFunding, 10 ether);
+        assertEq(info.proposedRoyaltyRate, 800);
+        assertEq(info.votesFor, 0);
+        assertEq(info.votesAgainst, 0);
+        assertEq(uint256(info.status), 1); // ProposalStatus.Active
+        
+        // Check project status changed to InRevival
+        FairLaunch.ProjectInfo memory projectInfo = fairLaunch.getProject(projectId);
+        assertEq(uint256(projectInfo.status), 3); // ProjectStatus.InRevival
     }
 
     function test_submitRevivalProposalRevertsWithZeroAddress() public {
@@ -328,31 +458,71 @@ contract FairLaunchTest is Test {
         invalidTeam[0] = address(0);
         invalidTeam[1] = addr4;
         
+        FairLaunch.ProposalParams memory params = FairLaunch.ProposalParams({
+            projectId: projectId,
+            newTeam: invalidTeam,
+            revivalPlan: "Revival plan",
+            milestones: milestones,
+            requestedFunding: 10 ether,
+            proposedRoyaltyRate: 800
+        });
+        
         vm.prank(addr3);
         vm.expectRevert("Team member address cannot be zero");
-        fairLaunch.submitRevivalProposal(
-            projectId,
-            invalidTeam,
-            "Revival plan",
-            milestones,
-            10 ether,
-            800
-        );
+        fairLaunch.submitRevivalProposal(params);
     }
 
     function test_submitRevivalProposalRevertsWithInvalidRoyalty() public {
         uint256 projectId = _abandonProject();
         
+        FairLaunch.ProposalParams memory params = FairLaunch.ProposalParams({
+            projectId: projectId,
+            newTeam: newTeam,
+            revivalPlan: "Revival plan",
+            milestones: milestones,
+            requestedFunding: 10 ether,
+            proposedRoyaltyRate: 300 // Too low
+        });
+        
         vm.prank(addr3);
         vm.expectRevert("Invalid royalty rate");
-        fairLaunch.submitRevivalProposal(
-            projectId,
-            newTeam,
-            "Revival plan",
-            milestones,
-            10 ether,
-            300 // Too low
-        );
+        fairLaunch.submitRevivalProposal(params);
+    }
+
+    function test_submitRevivalProposalRevertsEmptyTeam() public {
+        uint256 projectId = _abandonProject();
+        
+        address[] memory emptyTeam = new address[](0);
+        
+        FairLaunch.ProposalParams memory params = FairLaunch.ProposalParams({
+            projectId: projectId,
+            newTeam: emptyTeam,
+            revivalPlan: "Revival plan",
+            milestones: milestones,
+            requestedFunding: 10 ether,
+            proposedRoyaltyRate: 800
+        });
+        
+        vm.prank(addr3);
+        vm.expectRevert("New team required");
+        fairLaunch.submitRevivalProposal(params);
+    }
+
+    function test_submitRevivalProposalRevertsEmptyPlan() public {
+        uint256 projectId = _abandonProject();
+        
+        FairLaunch.ProposalParams memory params = FairLaunch.ProposalParams({
+            projectId: projectId,
+            newTeam: newTeam,
+            revivalPlan: "", // Empty plan
+            milestones: milestones,
+            requestedFunding: 10 ether,
+            proposedRoyaltyRate: 800
+        });
+        
+        vm.prank(addr3);
+        vm.expectRevert("Revival plan required");
+        fairLaunch.submitRevivalProposal(params);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -363,6 +533,7 @@ contract FairLaunchTest is Test {
         (uint256 projectId, uint256 proposalId) = _setupRevivalProposal();
         
         uint256 expectedVotingPower = fairLaunch.getUserVotingPower(addr1);
+        assertGt(expectedVotingPower, 0);
         
         vm.prank(addr1);
         vm.expectEmit(true, true, false, true);
@@ -370,8 +541,22 @@ contract FairLaunchTest is Test {
         
         fairLaunch.voteOnProposal(proposalId, true);
         
-        (, , , , , , , uint256 votesFor, , ) = fairLaunch.getRevivalProposal(proposalId);
-        assertEq(votesFor, expectedVotingPower);
+        FairLaunch.ProposalInfo memory info = fairLaunch.getRevivalProposal(proposalId);
+        assertEq(info.votesFor, expectedVotingPower);
+        assertEq(info.votesAgainst, 0);
+    }
+
+    function test_voteOnProposalAgainst() public {
+        (, uint256 proposalId) = _setupRevivalProposal();
+        
+        uint256 expectedVotingPower = fairLaunch.getUserVotingPower(addr1);
+        
+        vm.prank(addr1);
+        fairLaunch.voteOnProposal(proposalId, false);
+        
+        FairLaunch.ProposalInfo memory info = fairLaunch.getRevivalProposal(proposalId);
+        assertEq(info.votesFor, 0);
+        assertEq(info.votesAgainst, expectedVotingPower);
     }
 
     function test_voteOnProposalRevertsDoubleVoting() public {
@@ -393,6 +578,17 @@ contract FairLaunchTest is Test {
         fairLaunch.voteOnProposal(proposalId, true);
     }
 
+    function test_voteOnProposalRevertsAfterVotingPeriod() public {
+        (, uint256 proposalId) = _setupRevivalProposal();
+        
+        // Wait for voting period to end
+        vm.warp(block.timestamp + VOTING_PERIOD + 1);
+        
+        vm.prank(addr1);
+        vm.expectRevert("Voting period ended");
+        fairLaunch.voteOnProposal(proposalId, true);
+    }
+
     function test_executeProposalApproved() public {
         (uint256 projectId, uint256 proposalId) = _setupRevivalProposal();
         
@@ -411,9 +607,12 @@ contract FairLaunchTest is Test {
         
         fairLaunch.executeProposal(proposalId);
         
-        (, , , , , , FairLaunch.ProjectStatus status, address currentOwner, , ) = fairLaunch.getProject(projectId);
-        assertEq(uint256(status), 4); // ProjectStatus.Revived
-        assertEq(currentOwner, addr3);
+        FairLaunch.ProjectInfo memory projectInfo = fairLaunch.getProject(projectId);
+        assertEq(uint256(projectInfo.status), 4); // ProjectStatus.Revived
+        assertEq(projectInfo.currentOwner, addr3);
+        
+        FairLaunch.ProposalInfo memory proposalInfo = fairLaunch.getRevivalProposal(proposalId);
+        assertEq(uint256(proposalInfo.status), 2); // ProposalStatus.Approved
     }
 
     function test_executeProposalRejected() public {
@@ -432,11 +631,31 @@ contract FairLaunchTest is Test {
         vm.warp(block.timestamp + VOTING_PERIOD + 1);
         fairLaunch.executeProposal(proposalId);
         
-        (, , , , , , , , , FairLaunch.ProposalStatus proposalStatus) = fairLaunch.getRevivalProposal(proposalId);
-        assertEq(uint256(proposalStatus), 3); // ProposalStatus.Rejected
+        FairLaunch.ProposalInfo memory proposalInfo = fairLaunch.getRevivalProposal(proposalId);
+        assertEq(uint256(proposalInfo.status), 3); // ProposalStatus.Rejected
         
-        (, , , , , , FairLaunch.ProjectStatus projectStatus, , , ) = fairLaunch.getProject(projectId);
-        assertEq(uint256(projectStatus), 2); // ProjectStatus.Abandoned
+        FairLaunch.ProjectInfo memory projectInfo = fairLaunch.getProject(projectId);
+        assertEq(uint256(projectInfo.status), 2); // ProjectStatus.Abandoned
+    }
+
+    function test_executeProposalRevertsBeforeVotingPeriod() public {
+        (, uint256 proposalId) = _setupRevivalProposal();
+        
+        vm.prank(addr1);
+        fairLaunch.voteOnProposal(proposalId, true);
+        
+        // Don't wait for voting period
+        vm.expectRevert("Voting period not ended");
+        fairLaunch.executeProposal(proposalId);
+    }
+
+    function test_executeProposalRevertsNoVotes() public {
+        (, uint256 proposalId) = _setupRevivalProposal();
+        
+        vm.warp(block.timestamp + VOTING_PERIOD + 1);
+        
+        vm.expectRevert("No votes cast");
+        fairLaunch.executeProposal(proposalId);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -487,12 +706,19 @@ contract FairLaunchTest is Test {
                         ACCESS CONTROL TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_updateActivityRevertsNotOwner() public {
+    function test_updateContributor() public {
         uint256 projectId = _registerTestProject();
         
-        vm.prank(addr3);
-        vm.expectRevert("Not project owner");
-        fairLaunch.updateActivity(projectId);
+        vm.prank(addr1);
+        vm.expectEmit(true, true, false, true);
+        emit FairLaunch.ContributorAdded(projectId, addr5, 1000);
+        
+        fairLaunch.updateContributor(projectId, addr5, 1000, "Tester", true);
+        
+        (uint256 weight, string memory role, bool isActive) = fairLaunch.getContributor(projectId, addr5);
+        assertEq(weight, 1000);
+        assertEq(role, "Tester");
+        assertEq(isActive, true);
     }
 
     function test_updateContributorRevertsNotOwner() public {
@@ -503,15 +729,43 @@ contract FairLaunchTest is Test {
         fairLaunch.updateContributor(projectId, addr5, 1000, "Tester", true);
     }
 
+    function test_updateContributorRevertsZeroAddress() public {
+        uint256 projectId = _registerTestProject();
+        
+        vm.prank(addr1);
+        vm.expectRevert("Contributor address cannot be zero");
+        fairLaunch.updateContributor(projectId, address(0), 1000, "Tester", true);
+    }
+
+    function test_updateContributorRevertsEmptyRole() public {
+        uint256 projectId = _registerTestProject();
+        
+        vm.prank(addr1);
+        vm.expectRevert("Role cannot be empty");
+        fairLaunch.updateContributor(projectId, addr5, 1000, "", true);
+    }
+
     function test_setVotingPowerRevertsNotOwner() public {
         vm.prank(addr1);
         vm.expectRevert("Ownable: caller is not the owner");
         fairLaunch.setVotingPower(addr2, 1000);
     }
 
+    function test_setVotingPower() public {
+        fairLaunch.setVotingPower(addr2, 1000);
+        
+        uint256 votingPower = fairLaunch.getUserVotingPower(addr2);
+        assertEq(votingPower, 1000 ether + 1000); // Token balance + reputation
+    }
+
     function test_withdrawFeesRevertsNotOwner() public {
         vm.prank(addr1);
         vm.expectRevert("Ownable: caller is not the owner");
+        fairLaunch.withdrawFees();
+    }
+
+    function test_withdrawFeesRevertsNoBalance() public {
+        vm.expectRevert("No fees to withdraw");
         fairLaunch.withdrawFees();
     }
 
@@ -528,8 +782,8 @@ contract FairLaunchTest is Test {
         
         fairLaunch.raiseDispute(projectId, "Unfair abandonment");
         
-        (, , , , , , FairLaunch.ProjectStatus status, , , ) = fairLaunch.getProject(projectId);
-        assertEq(uint256(status), 5); // ProjectStatus.Disputed
+        FairLaunch.ProjectInfo memory info = fairLaunch.getProject(projectId);
+        assertEq(uint256(info.status), 5); // ProjectStatus.Disputed
     }
 
     function test_raiseDisputeRevertsNotAuthorized() public {
@@ -549,21 +803,42 @@ contract FairLaunchTest is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
+                        EDGE CASE TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_getUserVotingPowerZeroAddress() public {
+        uint256 votingPower = fairLaunch.getUserVotingPower(address(0));
+        assertEq(votingPower, 0);
+    }
+
+    function test_getUserProjectsEmptyArray() public {
+        uint256[] memory userProjects = fairLaunch.getUserProjects(addr5);
+        assertEq(userProjects.length, 0);
+    }
+
+    function test_projectExistsModifier() public {
+        vm.expectRevert("Project does not exist");
+        fairLaunch.getProject(999);
+    }
+
+    /*//////////////////////////////////////////////////////////////
                             HELPER FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     function _registerTestProject() internal returns (uint256) {
+        FairLaunch.ProjectParams memory params = FairLaunch.ProjectParams({
+            name: "Test Project",
+            description: "A test project",
+            githubRepo: "https://github.com/test/project",
+            techStack: techStack,
+            team: originalTeam,
+            contributionWeights: contributionWeights,
+            roles: roles,
+            royaltyRate: 1000
+        });
+        
         vm.prank(addr1);
-        return fairLaunch.registerProject(
-            "Test Project",
-            "A test project",
-            "https://github.com/test/project",
-            techStack,
-            originalTeam,
-            contributionWeights,
-            roles,
-            1000
-        );
+        return fairLaunch.registerProject(params);
     }
 
     function _abandonProject() internal returns (uint256) {
@@ -583,15 +858,17 @@ contract FairLaunchTest is Test {
     function _setupRevivalProposal() internal returns (uint256 projectId, uint256 proposalId) {
         projectId = _abandonProject();
         
+        FairLaunch.ProposalParams memory params = FairLaunch.ProposalParams({
+            projectId: projectId,
+            newTeam: newTeam,
+            revivalPlan: "Revival plan",
+            milestones: milestones,
+            requestedFunding: 10 ether,
+            proposedRoyaltyRate: 800
+        });
+        
         vm.prank(addr3);
-        proposalId = fairLaunch.submitRevivalProposal(
-            projectId,
-            newTeam,
-            "Revival plan",
-            milestones,
-            10 ether,
-            800
-        );
+        proposalId = fairLaunch.submitRevivalProposal(params);
     }
 
     function _setupRevivedProject() internal returns (uint256) {
@@ -607,56 +884,5 @@ contract FairLaunchTest is Test {
         fairLaunch.executeProposal(proposalId);
         
         return projectId;
-    }
-}
-
-/*//////////////////////////////////////////////////////////////
-                        MOCK ERC20 CONTRACT
-//////////////////////////////////////////////////////////////*/
-
-contract MockERC20 is Test {
-    string public name;
-    string public symbol;
-    uint8 public decimals = 18;
-    uint256 public totalSupply;
-    
-    mapping(address => uint256) public balanceOf;
-    mapping(address => mapping(address => uint256)) public allowance;
-    
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    event Approval(address indexed owner, address indexed spender, uint256 value);
-    
-    constructor(string memory _name, string memory _symbol, uint256 _totalSupply) {
-        name = _name;
-        symbol = _symbol;
-        totalSupply = _totalSupply;
-        balanceOf[msg.sender] = _totalSupply;
-        emit Transfer(address(0), msg.sender, _totalSupply);
-    }
-    
-    function transfer(address to, uint256 amount) public returns (bool) {
-        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
-        balanceOf[msg.sender] -= amount;
-        balanceOf[to] += amount;
-        emit Transfer(msg.sender, to, amount);
-        return true;
-    }
-    
-    function approve(address spender, uint256 amount) public returns (bool) {
-        allowance[msg.sender][spender] = amount;
-        emit Approval(msg.sender, spender, amount);
-        return true;
-    }
-    
-    function transferFrom(address from, address to, uint256 amount) public returns (bool) {
-        require(balanceOf[from] >= amount, "Insufficient balance");
-        require(allowance[from][msg.sender] >= amount, "Insufficient allowance");
-        
-        balanceOf[from] -= amount;
-        balanceOf[to] += amount;
-        allowance[from][msg.sender] -= amount;
-        
-        emit Transfer(from, to, amount);
-        return true;
     }
 }
