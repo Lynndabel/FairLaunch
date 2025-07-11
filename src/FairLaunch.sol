@@ -119,7 +119,7 @@ contract FairLaunch is Ownable, ReentrancyGuard {
         _;
     }
     
-    constructor(address _fair3Token) {
+    constructor(address _fair3Token) Ownable(msg.sender) {
         require(_fair3Token != address(0), "FAIR3 token address cannot be zero");
         fair3Token = IERC20(_fair3Token);
     }
@@ -238,8 +238,8 @@ contract FairLaunch is Ownable, ReentrancyGuard {
             require(_newTeam[i] != address(0), "Team member address cannot be zero");
         }
         
-        _proposalIds.increment();
-        uint256 newProposalId = _proposalIds.current();
+        ++_proposalIdCounter;
+        uint256 newProposalId = _proposalIdCounter;
         
         RevivalProposal storage proposal = revivalProposals[newProposalId];
         proposal.id = newProposalId;
@@ -337,7 +337,6 @@ contract FairLaunch is Ownable, ReentrancyGuard {
         require(project.totalContributionWeight > 0, "No contributors to distribute to");
         
         uint256 totalRoyalty = (msg.value * project.royaltyRate) / BASIS_POINTS;
-        uint256 platformFee = msg.value - totalRoyalty;
         uint256 distributedAmount = 0;
         
         // Distribute to original contributors based on their weight
