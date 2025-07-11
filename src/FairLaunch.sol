@@ -1,20 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
 
-/**
- * @title FairLaunch - Project Recycling System
- * @dev A decentralized system for inheriting abandoned Web3 projects with fair royalty distribution
- */
 contract FairLaunch is Ownable, ReentrancyGuard {
-    using Counters for Counters.Counter;
-    
     // State variables
-    Counters.Counter private _projectIds;
+    uint256 private _projectIdCounter;
+    uint256 private _proposalIdCounter;
     IERC20 public fair3Token;
     
     // Constants
@@ -24,6 +18,7 @@ contract FairLaunch is Ownable, ReentrancyGuard {
     uint256 public constant MAX_ROYALTY_RATE = 1500; // 15%
     uint256 public constant BASIS_POINTS = 10000; // 100%
     
+    // Enums
     enum ProjectStatus {
         Active,
         Flagged,
@@ -41,10 +36,11 @@ contract FairLaunch is Ownable, ReentrancyGuard {
         Executed
     }
     
+    // Structs
     struct Contributor {
         address wallet;
-        uint256 contributionWeight;
-        string role;
+        uint256 contributionWeight; // Basis points (0-10000)
+        string role; // "founder", "core_dev", "community", etc.
         bool isActive;
     }
     
@@ -57,7 +53,7 @@ contract FairLaunch is Ownable, ReentrancyGuard {
         address[] originalTeam;
         mapping(address => Contributor) contributors;
         uint256 totalContributionWeight;
-        uint256 royaltyRate;
+        uint256 royaltyRate; // Basis points
         ProjectStatus status;
         uint256 abandonedTimestamp;
         uint256 lastActivityTimestamp;
@@ -81,17 +77,17 @@ contract FairLaunch is Ownable, ReentrancyGuard {
         uint256 votesAgainst;
         ProposalStatus status;
         mapping(address => bool) hasVoted;
-        mapping(address => bool) voteChoice;
+        mapping(address => bool) voteChoice; // true = for, false = against
     }
     
+    // Mappings
     mapping(uint256 => Project) public projects;
     mapping(uint256 => RevivalProposal) public revivalProposals;
     mapping(address => uint256[]) public userProjects;
     mapping(string => uint256) public githubToProjectId;
     mapping(address => uint256) public userVotingPower;
     
-    Counters.Counter private _proposalIds;
-    
+    // Events
     event ProjectRegistered(uint256 indexed projectId, string name, address indexed owner);
     event ProjectFlagged(uint256 indexed projectId, address indexed flagger, string reason);
     event ProjectAbandoned(uint256 indexed projectId, uint256 timestamp);
@@ -104,7 +100,7 @@ contract FairLaunch is Ownable, ReentrancyGuard {
     
     // Modifiers
     modifier projectExists(uint256 _projectId) {
-        require(_projectId <= _projectIds.current() && _projectId > 0, "Project does not exist");
+        require(_projectId <= _projectIdCounter && _projectId > 0, "Project does not exist");
         _;
     }
     
@@ -148,8 +144,8 @@ contract FairLaunch is Ownable, ReentrancyGuard {
         require(_royaltyRate >= MIN_ROYALTY_RATE && _royaltyRate <= MAX_ROYALTY_RATE, "Invalid royalty rate");
         require(githubToProjectId[_githubRepo] == 0, "GitHub repo already registered");
         
-        _projectIds.increment();
-        uint256 newProjectId = _projectIds.current();
+        ++_projectIdCounter;
+        uint256 newProjectId = _projectIdCounter;
         
         Project storage newProject = projects[newProjectId];
         newProject.id = newProjectId;
@@ -544,14 +540,14 @@ contract FairLaunch is Ownable, ReentrancyGuard {
      * @dev Get total number of projects
      */
     function getTotalProjects() external view returns (uint256) {
-        return _projectIds.current();
+        return _projectIdCounter;
     }
     
     /**
      * @dev Get total number of proposals
      */
     function getTotalProposals() external view returns (uint256) {
-        return _proposalIds.current();
+        return _proposalIdCounter;
     }
     
     /**
